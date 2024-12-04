@@ -23,7 +23,7 @@ This PowerShell script is designed as an agent for the Snipe-IT asset management
     - `$SnipeItApiToken`: Your Snipe-IT API token.
     - `$category_id`: The category ID for your models (default: 3 for desktops, 2 for laptops).
     - `$fieldset_id`: The fieldset ID for your models.
-3. Update the custom fields in the `Get-CustomFields` function to match the ones in your Snipe-IT installation.
+3. Update the custom fields in the `Get-CustomFields` function to match the ones in your Snipe-IT installation. (dbfield names : https://snipe-it.readme.io/reference/hardware-create)
 
 ## Usage
 
