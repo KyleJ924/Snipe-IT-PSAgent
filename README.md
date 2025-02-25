@@ -1,5 +1,13 @@
 # Snipe-IT Asset Management Script
 
+#### Changelog from original script
+- Updated `Get-WmiObject` cmdlet references (deprecated) to `Get-CimInstance`
+- Added `asset_tag` to asset creation function as this is a required field 
+- Custom field modifications
+- Some Dell specific modifications for model/serial
+- Removed Hyper-V functions
+- Forced custom field outputs to strings to fix issue when deploying script through PDQ Deploy
+
 ## Overview
 
 This PowerShell script is designed as an agent for the Snipe-IT asset management system. It performs the following tasks:
