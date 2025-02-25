@@ -1,37 +1,29 @@
+# Utilizes Snipe-IT API to update asset information
+# Forked from https://github.com/skalg/Snipe-IT-PSAgent
+
+# Modifications:
+# Customized custom fields to match my install
+# NOTE: Custom field definitions in Snipe-IT need to be set at Text in order to properly accept input from script
+# Updated deprecated Get-WmiObect cmdlets to Get-CimInstance equivalents
+# Forced outputs to strings to fix issue when deploying script through PDQ Deploy
+# Added asset_tag to asset creation function, this is a REQUIRED field
+
 # Define the necessary variables
 $SnipeItApiUrl = "https://your-snipe-it-instance/api/v1"
 $SnipeItApiToken = "your_api_token"
 
 # Static fields for asset creation
-$status_id = 5  # Change this to the appropriate status ID for your assets
-$fieldset_id = 1  # Change this to the appropriate fieldset ID for your models (Custom Fields)
+$status_id = 4  # Change this to the appropriate status ID for your assets
+$fieldset_id = 2  # Change this to the appropriate fieldset ID for your models (Custom Fields)
 
 # Function to load the necessary assembly for System.Web.HttpUtility
 function Load-HttpUtilityAssembly {
     Add-Type -AssemblyName "System.Web"
 }
 
-# Function to check if Hyper-V is installed and list VMs
-function Get-HyperVVMs {
-    if (Get-Module -ListAvailable -Name "Hyper-V") {
-        try {
-            $vms = Get-VM | Select-Object -ExpandProperty Name
-            if ($vms) {
-                return $vms -join ", "
-            } else {
-                return ""
-            }
-        } catch {
-            return ""
-        }
-    } else {
-        return ""
-    }
-}
-
 # Function to determine if the computer is a laptop or desktop
 function Get-ComputerType {
-    $battery = Get-WmiObject -Class Win32_Battery
+    $battery = Get-CimInstance -ClassName Win32_Battery
 
     if ($battery) {
         return "Laptop"
@@ -46,7 +38,7 @@ function Get-CategoryId {
 
     switch ($computerType) {
         "Laptop" { return 2 }
-        "Desktop" { return 3 }
+        "Desktop" { return 10 }
         default { return 3 }
     }
 }
@@ -63,10 +55,10 @@ function Get-ComputerModel {
 
     # Attempt to retrieve the manufacturer and model information
     $manufacturer = (Get-CimInstance -ClassName Win32_ComputerSystem).Manufacturer
-    $model = if ($manufacturer -match "Lenovo") {
-        (Get-CimInstance -ClassName Win32_BIOS).Description
+    $model = if ($manufacturer -match "Dell") {
+        Get-CimInstance -ClassName Win32_ComputerSystem | Select-Object -ExpandProperty Model
     } else {
-        (Get-CimInstance -ClassName Win32_ComputerSystem).Model
+        (Get-CimInstance -ClassName Win32_BIOS).Description
     }
 
     # Verify that the model is valid
@@ -91,7 +83,7 @@ function Get-ComputerSerialNumber {
         "INVALID"
     )
 
-    $serialNumber = Get-WmiObject -Class Win32_BIOS | Select-Object -ExpandProperty SerialNumber
+    $serialNumber = Get-CimInstance -Class Win32_BIOS | Select-Object -ExpandProperty SerialNumber
 
     if ($serialNumber -in $invalidSerials) {
         return ""
@@ -102,20 +94,20 @@ function Get-ComputerSerialNumber {
 
 # Function to get all MAC addresses of the computer
 function Get-MacAddresses {
-    $macAddresses = Get-WmiObject -Class Win32_NetworkAdapterConfiguration | Where-Object { $_.MACAddress -ne $null } | Select-Object -ExpandProperty MACAddress
+    $macAddresses = Get-CimInstance -Class Win32_NetworkAdapterConfiguration -Filter "IPEnabled=TRUE" | Select-Object -ExpandProperty MACAddress
     return $macAddresses -join ", "
 }
 
 # Function to get the RAM amount in GB
 function Get-RAMAmount {
-    $ramAmount = [math]::Round((Get-WmiObject -Class Win32_ComputerSystem).TotalPhysicalMemory / 1GB)
+    $ramAmount = [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB)
     return $ramAmount
 }
 
 # Function to get the CPU information
 function Get-CPUInfo {
-    $cpuInfo = (Get-WmiObject -Class Win32_Processor | Select-Object -First 1).Name
-    return $cpuInfo
+    $cpuInfo = Get-CimInstance -ClassName Win32_Processor | Select-Object Name -ExpandProperty Name
+    return $cpuInfo | Out-String
 }
 
 # Function to get the currently logged-on user
@@ -126,42 +118,26 @@ function Get-CurrentUser {
 
 # Function to get the OS information
 function Get-OSInfo {
-    $osInfo = (Get-WmiObject -Class Win32_OperatingSystem).Caption
-    
-    # Remove any non-alphanumeric characters and spaces
-    $osInfo = ($osInfo -replace '[^\w\s]', '').Trim()
-    
-    # Replace non-breaking spaces (U+00A0) with a normal space (U+0020)
-    $osInfo = $osInfo -replace '\u00A0', ' '
-
-    # Trim leading and trailing spaces
-    $osInfo = $osInfo.Trim()
-    
-    return $osInfo
+    $osInfo = Get-CimInstance Win32_OperatingSystem | Select-Object Caption -ExpandProperty Caption
+    return $osInfo | Out-String
 }
 
 # Function to get the Windows version
 function Get-WindowsVersion {
-    $windowsVersion = (Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion").DisplayVersion
-    return $windowsVersion
+    $windowsVersion = Get-CimInstance Win32_OperatingSystem | Select-Object Version -ExpandProperty Version
+    return $windowsVersion | Out-String
 }
 
 # Function to get the build number
 function Get-BuildNumber {
-    $buildNumber = (Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion").CurrentBuild
-    return $buildNumber
-}
-
-# Function to get the kernel version
-function Get-KernelVersion {
-    $kernelVersion = (Get-WmiObject -Class Win32_OperatingSystem).Version
-    return $kernelVersion
+    $buildNumber = Get-CimInstance Win32_OperatingSystem | Select-Object BuildNumber -ExpandProperty BuildNumber
+    return $buildNumber | Out-String
 }
 
 # Function to get the current active IP address
 function Get-ActiveIPAddress {
-    $ipAddress = (Get-WmiObject -Class Win32_NetworkAdapterConfiguration | Where-Object { $_.IPEnabled -eq $true } | Select-Object -ExpandProperty IPAddress)[0]
-    return $ipAddress
+    $ipAddress = Get-CimInstance -Class Win32_NetworkAdapterConfiguration -Filter "IPEnabled=$true" | Select-Object -ExpandProperty IPAddress
+    return $ipAddress | Out-String
 }
 
 # Function to get storage type (SSD or HDD) and capacity
@@ -190,31 +166,27 @@ function Get-CustomFields {
         $macAddresses = Get-MacAddresses
         $ramAmount = Get-RAMAmount
         $cpuInfo = Get-CPUInfo
-        $currentUser = Get-CurrentUser
+        #$currentUser = Get-CurrentUser
         $osInfo = Get-OSInfo
         $windowsVersion = Get-WindowsVersion
         $buildNumber = Get-BuildNumber
-        $kernelVersion = Get-KernelVersion
         $ipAddress = Get-ActiveIPAddress
-        $storageInfo = Get-StorageInfo
-        $hyperVVMs = Get-HyperVVMs
-        $storageType = ($storageInfo | ForEach-Object { $_.Type }) -join ", "
-        $storageCapacity = ($storageInfo | ForEach-Object { $_.Capacity }) -join ", "
+        #$storageInfo = Get-StorageInfo
+        #$storageType = ($storageInfo | ForEach-Object { $_.Type }) -join ", "  | Out-String
+        #$storageCapacity = ($storageInfo | ForEach-Object { $_.Capacity }) -join ", "  | Out-String
 
         # Validate each custom dbfield names : https://snipe-it.readme.io/reference/hardware-create
         $dbFields = @{
-            "_snipeit_adresse_mac_1"   = if ($macAddresses) { $macAddresses } else { "" }
-            "_snipeit_ram_5"           = if ($ramAmount) { $ramAmount } else { "" }
-            "_snipeit_cpu_6"           = if ($cpuInfo) { $cpuInfo } else { "" }
-            "_snipeit_utilisateur_11"  = if ($currentUser) { $currentUser } else { "" }
-            "_snipeit_os_14"           = if ($osInfo) { $osInfo } else { "" }
-            "_snipeit_version_41"      = if ($windowsVersion) { $windowsVersion } else { "" }
-            "_snipeit_build_43"        = if ($buildNumber) { $buildNumber } else { "" }
-            "_snipeit_kernel_42"       = if ($kernelVersion) { $kernelVersion } else { "" }
-            "_snipeit_adresse_ipv4_18" = if ($ipAddress) { $ipAddress } else { "" }
-            "_snipeit_type_stockage_7" = if ($storageType) { $storageType } else { "" }
-            "_snipeit_capacitac_stockage_8" = if ($storageCapacity) { $storageCapacity } else { "" }
-            "_snipeit_vm_28"           = if ($hyperVVMs) { $hyperVVMs } else { "" }
+            "_snipeit_mac_10"       = if ($macAddresses) { $macAddresses } else { "" }
+            "_snipeit_ram_2"        = if ($ramAmount) { $ramAmount } else { "" }
+            "_snipeit_cpu_3"        = if ($cpuInfo) { $cpuInfo } else { "" }
+            #"_snipeit_user_11"     = if ($currentUser) { $currentUser } else { "" }
+            "_snipeit_os_4"         = if ($osInfo) { $osInfo } else { "" }
+            "_snipeit_os_version_5" = if ($windowsVersion) { $windowsVersion } else { "" }
+            "_snipeit_os_build_6"   = if ($buildNumber) { $buildNumber } else { "" }
+            "_snipeit_ipv4_7"       = if ($ipAddress) { $ipAddress } else { "" }
+            #"_snipeit_storage_type_8" = if ($storageType) { $storageType } else { "" }
+            #"_snipeit_storage_capacity_9" = if ($storageCapacity) { $storageCapacity } else { "" }
         }
         return $dbFields
     } catch {
@@ -254,7 +226,7 @@ function Search-ModelInSnipeIt {
         # Check the response for a matching model
         foreach ($model in $response.rows) {
             if ($model.name -eq $ModelName) {
-                Write-Output "Model found with ID: $($model.id)"
+                #Write-Output "Model found with ID: $($model.id)"
                 return $model.id
             }
         }
@@ -386,10 +358,11 @@ function Create-AssetInSnipeIt {
     }
 
     $body = @{
-        model_id  = $ModelId
+        model_id  = $ModelId        #Required
+        asset_tag = $SerialNumber   #Required
         serial    = $SerialNumber
-        name      = $AssetName
-        status_id = $status_id
+        name      = $AssetName      #Required
+        status_id = $status_id      #Required
     } + $CustomFields | ConvertTo-Json -Depth 10
 
     try {
